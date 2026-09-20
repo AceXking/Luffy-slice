@@ -1,0 +1,8 @@
+# 运行环境: 隔离 venv C:\Users\jack\.workbuddy\binaries\python\envs\video_processor
+# ffmpeg 直接用工作区二进制 D:\pro\QP\ffmpeg-master-latest-win64-gpl-shared\bin，无需 pip 安装
+streamlit>=1.64
+mediapipe>=1.0.1
+faster-whisper>=1.2.1
+opencv-contrib-python>=5.0.0
+numpy>=2.5
+requests>=2.34

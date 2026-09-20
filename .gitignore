@@ -1,0 +1,35 @@
+# ===== 第三方二进制 / 大文件（不提交） =====
+# ffmpeg 二进制：从官方下载后放在仓库根目录，与 video_processor 同级
+ffmpeg-master-latest-win64-gpl-shared/
+
+# 运行时模型权重（本地放置；体积大且受 GitHub 100MB 单文件限制）
+video_processor/models/
+
+# ===== 本地配置（含密钥，切勿提交） =====
+**/config.py
+
+# ===== 运行时生成的产物 =====
+video_processor/output/
+video_processor/uploads/
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+
+# ===== 工具 / IDE / 系统 =====
+.workbuddy/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# ===== 日志与临时文件 =====
+*.log
+t.txt
+_gitinfo*.txt
+_st_*.log
+_tmp_log.txt
