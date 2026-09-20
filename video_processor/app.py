@@ -146,7 +146,6 @@ elif page == "生成":
         person_h = colp1.slider("人物大小(占画面高)", 0.12, 0.6, 0.30, 0.01)
         pos_x = colp2.slider("人物水平位置", 0.0, 0.7, 0.05, 0.01)
         pos_y = colp1.slider("人物垂直位置", 0.0, 0.7, 0.05, 0.01)
-        radius = colp2.slider("人物圆角", 0.0, 0.5, 0.16, 0.01)
         colp3, colp4 = st.columns(2)
         border_on = colp3.checkbox("人物描边", True)
         border_hex = colp4.color_picker("描边颜色", "#FFFFFF")
@@ -205,7 +204,6 @@ elif page == "生成":
                     language=lang,
                     person_height_ratio=person_h,
                     person_pos=(pos_x, pos_y),
-                    radius_ratio=radius,
                     border=border_on,
                     border_hex=border_hex,
                     style=style_key,

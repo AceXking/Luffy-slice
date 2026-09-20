@@ -2,13 +2,13 @@
 
 相对 v2 的改动：
   - 人物：不再 alpha 抠像，改为 mediapipe 仅定位包围盒 -> 从原帧裁剪该区域 ->
-    圆角矩形 + 描边环（"圈起来"）贴左上角，带投影/入场/呼吸缩放。更快更干净。
+    正圆遮罩(蒙版) + 圆形描边环贴左上角，带投影/入场淡入。
+    圆形直径与位置固定（不随逐帧包围盒变化、取消呼吸缩放），彻底杜绝人物框抖动。
   - 字幕：见 subtitles.py（稳定居中、避开人物框、不闪不漏字）。
   - 背景：纯色 / 本地素材库 / Pexels / Pixabay / 直链；视频背景循环或截取，叠加蒙版突出字幕。
   - BGM：可选背景音乐，音量小，按成片时长循环或截取，与人物原声混音。
 """
 
-import math
 import subprocess
 from pathlib import Path
 
@@ -126,45 +126,53 @@ def _composite(canvas: np.ndarray, img_rgba: np.ndarray, px: int, py: int, alpha
     ).astype(np.uint8)
 
 
-def _rounded_mask(h: int, w: int, radius: int) -> np.ndarray:
-    """标准圆角矩形：两条贯穿全宽/全高的十字条带 + 四个角圆。
+def _circle_mask(h: int, w: int, radius: int) -> np.ndarray:
+    """正圆遮罩：圆心取像素精确中心 ((h-1)/2,(w-1)/2)，圆外为 0。
 
-    旧实现中央矩形从 (r,r) 画到 (w-r-1,h-r-1)，四条边的中间条带没被填充，
-    当裁剪框宽扁/瘦长且圆角较大时，边中点会出现深度为 r 的凹陷（四瓣骨头脑形）。
+    用浮点圆心 + 0.5px 余量，保证左右/上下完全对称，
+    避免整数圆心在圆边缘出现 1px 平台（白环局部突出）。
     """
-    mask = np.zeros((h, w), np.uint8)
-    r = max(1, min(int(radius), min(h, w) // 2))
-    # 横向全宽条带 + 纵向全高条带，保证四条边中点始终被覆盖
-    cv2.rectangle(mask, (0, r), (w - 1, h - 1 - r), 255, -1)
-    cv2.rectangle(mask, (r, 0), (w - 1 - r, h - 1), 255, -1)
-    for cx, cy in [(r, r), (w - 1 - r, r), (r, h - 1 - r), (w - 1 - r, h - 1 - r)]:
-        cv2.circle(mask, (cx, cy), r, 255, -1)
-    return mask.astype(np.float32) / 255.0
+    r = max(1.0, min(float(radius), min(h, w) / 2 - 0.5))
+    cy, cx = (h - 1) / 2.0, (w - 1) / 2.0
+    Y, X = np.ogrid[:h, :w]
+    mask = ((X - cx) ** 2 + (Y - cy) ** 2) <= r ** 2
+    return mask.astype(np.uint8) * 255
 
 
-def _person_crop_rgba(frame: np.ndarray, box, target_h: int,
-                      radius_ratio: float, border_bgr, border_w: int) -> np.ndarray | None:
-    """从原帧裁剪人物区域 -> 圆角矩形 + 描边环 -> RGBA。"""
+def _person_crop_rgba(frame: np.ndarray, box, target_d: int,
+                      border_bgr, border_w: int) -> np.ndarray | None:
+    """从原帧裁剪人物区域 -> 正圆遮罩(蒙版) + 圆形描边环 -> RGBA。
+
+    统一输出 target_d×target_d 固定方形画布：圆形直径、圆心、贴图位置全部恒定，
+    与逐帧包围盒无关，彻底消除人物框抖动。bbox 只决定"取人物哪块"。
+
+    取景用「正方形铺满」而非「等比塞入」：先在原帧 bbox 内取一个边长 = 短边的
+    正方形区域，再整体缩放到 target_d。这样画布被真实画面完全填满，圆内不再
+    出现等比塞入时上下/左右的纯黑边（横屏源尤其明显）。
+    正方形在长边方向的对齐：横构图水平居中；竖构图纵向偏上，避免裁掉头部。
+    """
     x0, y0, x1, y1 = box
     crop = frame[y0:y1, x0:x1]
     if crop.size == 0:
         return None
     h, w = crop.shape[:2]
-    # 圆角半径限制在短边的 0.45 倍以内 -> 始终保留直边，是圆角矩形而非椭圆/胶囊/双圆盘
-    radius = int(min(h, w) * radius_ratio)
-    radius = max(4, min(radius, int(min(h, w) * 0.45)))
-    mask = _rounded_mask(h, w, radius)
-    rgba = cv2.cvtColor(crop, cv2.COLOR_BGR2BGRA)
-    # 描边环：mask 与腐蚀后之差
-    ek = max(border_w * 2, 3)
-    eroded = cv2.erode((mask * 255).astype("uint8"), np.ones((ek, ek), np.uint8))
-    ring = (mask * 255).astype("uint8") - eroded
-    rgba[ring > 0] = (*border_bgr, 255)
-    rgba[:, :, 3] = (mask * 255).astype("uint8")
-    # 缩放到目标高度
-    scale = target_h / h
-    pw = max(int(w * scale), 1)
-    rgba = cv2.resize(rgba, (pw, target_h), interpolation=cv2.INTER_AREA)
+    side = max(1, min(h, w))
+    ox = (w - side) // 2                                     # 横构图：水平居中
+    oy = int(round(0.15 * (h - side))) if h > side else 0    # 竖构图：偏上，保住头部
+    square = crop[oy:oy + side, ox:ox + side]
+    interp = cv2.INTER_AREA if side > target_d else cv2.INTER_LINEAR
+    rgba = cv2.cvtColor(
+        cv2.resize(square, (target_d, target_d), interpolation=interp),
+        cv2.COLOR_BGR2BGRA,
+    )
+    mask = _circle_mask(target_d, target_d, target_d // 2)
+    # 圆形描边环（沿圆边）
+    if border_w > 0:
+        ek = max(border_w * 2 + 1, 3)
+        eroded = cv2.erode(mask, np.ones((ek, ek), np.uint8))
+        ring = mask - eroded
+        rgba[ring > 0] = (*border_bgr, 255)
+    rgba[:, :, 3] = mask
     return rgba
 
 
@@ -218,7 +226,6 @@ def generate(
     language: str = "zh",
     person_height_ratio: float = 0.30,
     person_pos: tuple[float, float] = (0.05, 0.05),
-    radius_ratio: float = 0.16,
     border: bool = True,
     border_hex: str = "#FFFFFF",
     style: str = "luxe",
@@ -283,7 +290,6 @@ def generate(
 
     margin_x = int(person_pos[0] * OUT_W)
     margin_y = int(person_pos[1] * OUT_H)
-    ema_box = None
     placed_box = None
 
     with PersonSegmenter() as segmenter:
@@ -308,24 +314,17 @@ def generate(
             else:
                 canvas = graded_color.copy()
 
-            # 2) 人物裁剪圈框 -> 左上角
+            # 2) 人物裁剪 -> 圆形遮罩，固定直径与位置（消除逐帧抖动）
             box = segmenter.person_bbox(frame, i, fps)
             if box is not None:
-                breath = 1.0 + 0.012 * math.sin(2 * math.pi * 0.12 * t)
-                target_h = int(person_height_ratio * OUT_H * breath)
+                target_d = int(person_height_ratio * OUT_H)   # 固定直径，无呼吸缩放
                 rgba = _person_crop_rgba(
-                    frame, box, target_h, radius_ratio,
+                    frame, box, target_d,
                     border_bgr if border else (0, 0, 0), border_w=8 if border else 0,
                 )
                 if rgba is not None:
                     pw, ph = rgba.shape[1], rgba.shape[0]
-                    target = [margin_x, margin_y, pw, ph]
-                    if ema_box is None:
-                        ema_box = target[:]
-                    else:
-                        for k in range(4):
-                            ema_box[k] = int(ema_box[k] * 0.7 + target[k] * 0.3)
-                    px, py, pw, ph = ema_box
+                    px, py = margin_x, margin_y
                     px = min(px, OUT_W - pw)
                     py = min(py, OUT_H - ph)
 

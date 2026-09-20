@@ -1,0 +1,6 @@
+Initial commit: Luffy-slice 口播视频自动剪辑为 9:16 竖屏工具
+
+- 自动抠出人物 + 自选背景（纯色/风景视频/在线）+ 语音转写「滚动反转」大字字幕
+- Streamlit 网页界面（首页/生成）+ 命令行入口 main.py
+- 忽略项（不提交）: ffmpeg 二进制、运行时模型(whisper/segmenter)、output/uploads 生成物
+- 提供 config.example.py 模板与根 README 环境准备说明

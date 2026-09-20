@@ -1,0 +1,32 @@
+﻿warning: in the working copy of '.gitignore', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'video_processor/README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'video_processor/app.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'video_processor/config.example.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'video_processor/main.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'video_processor/requirements.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'video_processor/video_processor/__init__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'video_processor/video_processor/bg_provider.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'video_processor/video_processor/compose.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'video_processor/video_processor/ffmpeg_utils.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'video_processor/video_processor/segmentation.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'video_processor/video_processor/subtitles.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'video_processor/video_processor/transcribe.py', LF will be replaced by CRLF the next time Git touches it
+=== staged files after re-add ===
+.gitignore
+README.md
+video_processor/README.md
+video_processor/app.py
+video_processor/config.example.py
+video_processor/main.py
+video_processor/requirements.txt
+video_processor/video_processor/__init__.py
+video_processor/video_processor/bg_provider.py
+video_processor/video_processor/compose.py
+video_processor/video_processor/ffmpeg_utils.py
+video_processor/video_processor/segmentation.py
+video_processor/video_processor/subtitles.py
+video_processor/video_processor/transcribe.py
+=== confirm secret config NOT staged ===
+=== ignored check includes nested config ===
+video_processor/video_processor/config.py
