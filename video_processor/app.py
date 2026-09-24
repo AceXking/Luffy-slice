@@ -139,21 +139,29 @@ elif page == "生成":
         style_key = STYLE_OPTS[style_name]
         colp0, colp0b = st.columns(2)
         accent = colp0.color_picker("强调色(卡拉OK)", "#FFD166")
-        bg_dim = colp0b.slider("背景压暗", 0.0, 0.6, 0.15, 0.01)
+        bg_dim = colp0b.slider("背景压暗", 0.0, 0.6, 0.10, 0.01)
 
     with st.expander("5️⃣ 人物 / 字幕参数"):
         colp1, colp2 = st.columns(2)
-        person_h = colp1.slider("人物大小(占画面高)", 0.12, 0.6, 0.30, 0.01)
-        pos_x = colp2.slider("人物水平位置", 0.0, 0.7, 0.05, 0.01)
+        person_h = colp1.slider("人物大小(占画面高)", 0.12, 0.6, 0.20, 0.01)
+        pos_x = colp2.slider("人物水平位置", 0.0, 0.7, 0.10, 0.01)
         pos_y = colp1.slider("人物垂直位置", 0.0, 0.7, 0.05, 0.01)
         colp3, colp4 = st.columns(2)
         border_on = colp3.checkbox("人物描边", True)
         border_hex = colp4.color_picker("描边颜色", "#FFFFFF")
         colp5, colp6 = st.columns(2)
-        font_size = colp5.slider("字幕字号", 48, 160, 96, 4)
-        max_chars = colp6.slider("每行字数", 4, 14, 8, 1)
+        font_size = colp5.slider("字幕字号", 48, 160, 92, 4)
+        max_chars = colp6.slider("每行字数", 4, 14, 10, 1)
         person_shadow = st.checkbox("人物投影(景深)", True)
         lang = st.selectbox("语音语言", ["zh", "en", "ja", "ko"], index=0)
+        from video_processor.transcribe import AVAILABLE_SIZES, DEFAULT_SIZE
+        model_index = AVAILABLE_SIZES.index(DEFAULT_SIZE) if DEFAULT_SIZE in AVAILABLE_SIZES else 0
+        model_size = st.selectbox(
+            "识别模型（越大越准，CPU 上越慢）",
+            AVAILABLE_SIZES,
+            index=model_index,
+            help="base 最小最快；small 性价比佳；medium/large-v3 更准但明显更慢。首次使用若本地无该模型会自动下载。",
+        )
 
     if st.button("🪄 生成", type="primary", use_container_width=True):
         if not input_path:
@@ -213,6 +221,7 @@ elif page == "生成":
                     subtitle_overrides={"font_size": font_size, "max_chars_per_line": max_chars},
                     bgm_path=str(bgm_path) if bgm_path else None,
                     bgm_volume=bgm_volume,
+                    model_size=model_size,
                     progress_cb=lambda p: q.put(("prog", p)),
                 )
                 q.put(("done", str(out_path)))

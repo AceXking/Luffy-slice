@@ -1,0 +1,13 @@
+﻿=== faster-whisper version ===
+fw=1.2.1
+=== ctranslate2 ===
+ct2=4.8.2
+=== models dir ===
+backgrounds
+faster-whisper-base
+=== disk free (D:) ===
+free_GB=593.3 used_GB=58.4
+=== RAM ===
+RAM_GB=15.7
+=== cpu cores ===
+cores=16
