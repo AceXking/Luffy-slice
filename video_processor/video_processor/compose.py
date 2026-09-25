@@ -7,9 +7,19 @@
   - 字幕：见 subtitles.py（稳定居中、避开人物框、不闪不漏字）。
   - 背景：纯色 / 本地素材库 / Pexels / Pixabay / 直链；视频背景循环或截取，叠加蒙版突出字幕。
   - BGM：可选背景音乐，音量小，按成片时长循环或截取，与人物原声混音。
+
+性能（v3.1）：
+  - 人物分割在降采样帧上做（segmentation.py），4K 源单帧 168ms -> ~10ms。
+  - 背景影调预计算成 1 次通道混合 + 1 次逐像素乘加（_make_bg_grade），
+    全画布 float 运算 213ms -> 数十 ms。
+  - 人物投影遮罩只算一次（圆形恒定），不再逐帧高斯模糊。
+  - 字幕改为只叠加文字小贴图（subtitles.render_tiles），去掉全画布 RGBA
+    转换与合成，326ms -> 数 ms。
+  - 编码 preset veryfast。
 """
 
 import subprocess
+import time
 from pathlib import Path
 
 import cv2
@@ -116,6 +126,34 @@ def _make_grade_maps(h: int, w: int, vignette: float, scrim: float,
     return (vig.astype(np.float32), add.astype(np.float32), sub.astype(np.float32))
 
 
+def _make_bg_grade(desat: float, bg_dim: float, vig: np.ndarray,
+                   add: np.ndarray, sub: np.ndarray):
+    """预计算视频背景影调的可复用算子，把逐帧 6 次全画布 float 运算压成
+    "1 次通道混合 + 1 次乘加"。
+
+    原式: c1=a*c+b*luma -> *=(1-dim) -> *=vig; +=add*255 -> *=sub
+    合并: out = clip( M3 * (K @ c) + A3 )
+      K  : 去饱和(灰度混合)的 3x3 通道混合矩阵（同一矩阵对所有像素）
+      M3 : 逐像素乘子 (1-bg_dim)*vig*sub，展开到 3 通道
+      A3 : 逐像素加项 add*255*sub，展开到 3 通道
+    """
+    a, b = 1.0 - desat, desat
+    wb, wg, wr = 0.114, 0.587, 0.299  # BGR 顺序下的 luma 权重
+    K = np.array(
+        [
+            [a + b * wb, b * wg, b * wr],
+            [b * wb, a + b * wg, b * wr],
+            [b * wb, b * wg, a + b * wr],
+        ],
+        np.float32,
+    )
+    m = ((1.0 - bg_dim) * vig * sub).astype(np.float32)
+    t = (add * 255.0 * sub).astype(np.float32)
+    M3 = np.repeat(m[:, :, None], 3, axis=2)
+    A3 = np.repeat(t[:, :, None], 3, axis=2)
+    return K, M3, A3
+
+
 def _composite(canvas: np.ndarray, img_rgba: np.ndarray, px: int, py: int, alpha_mul: float = 1.0):
     ph, pw = img_rgba.shape[:2]
     px = min(max(px, 0), canvas.shape[1] - pw)
@@ -125,6 +163,18 @@ def _composite(canvas: np.ndarray, img_rgba: np.ndarray, px: int, py: int, alpha
     canvas[py : py + ph, px : px + pw] = (
         img_rgba[:, :, :3].astype(np.float32) * a + roi * (1 - a)
     ).astype(np.uint8)
+
+
+def _shadow_region(canvas: np.ndarray, alpha: np.ndarray, px: int, py: int):
+    """把纯黑投影叠到画布：out = dst * (1 - a)，只需一次乘暗（比 RGBA 合成省一半）。"""
+    h, w = alpha.shape[:2]
+    x0, y0 = max(px, 0), max(py, 0)
+    x1, y1 = min(px + w, canvas.shape[1]), min(py + h, canvas.shape[0])
+    if x1 <= x0 or y1 <= y0:
+        return
+    a = alpha[y0 - py : y1 - py, x0 - px : x1 - px].astype(np.float32) * (1.0 / 255.0)
+    roi = canvas[y0:y1, x0:x1]
+    roi[:] = (roi.astype(np.float32) * (1.0 - a[:, :, None])).astype(np.uint8)
 
 
 def _circle_mask(h: int, w: int, radius: int) -> np.ndarray:
@@ -239,6 +289,7 @@ def generate(
     bgm_path: str | None = None,
     bgm_volume: float = 0.2,
     voice_volume: float = 1.0,
+    model_size: str = "small",
     progress_cb=None,
 ) -> str:
     sp = {**STYLES.get(style, STYLES["luxe"])}
@@ -260,7 +311,7 @@ def generate(
         bg_reader = _BgVideoReader(background["path"], OUT_W, OUT_H)
 
     print("[compose] 转写中...")
-    segments = transcribe(input_video, language=language, model_name=whisper_model)
+    segments = transcribe(input_video, language=language, model_size=model_size)
     sub_over = dict(subtitle_overrides or {})
     sub_over.setdefault("accent", (*accent_rgb, 255))
     renderer = SubtitleRenderer(segments, OUT_W, OUT_H, **sub_over)
@@ -276,6 +327,23 @@ def generate(
             0, 255,
         ).astype(np.uint8)
 
+    # 视频背景影调算子（预计算：逐帧只需 1 次通道混合 + 1 次乘加）
+    grade_K = grade_M3 = grade_A3 = None
+    if bg_reader is not None:
+        grade_K, grade_M3, grade_A3 = _make_bg_grade(sp["desat"], bg_dim, vig, add, sub)
+
+    # 人物固定直径 + 投影遮罩（圆形恒定，模糊一次复用，避免逐帧高斯模糊）
+    target_d = int(person_height_ratio * OUT_H)
+    shadow_mask = None
+    if person_shadow:
+        d = target_d
+        circ = _circle_mask(d, d, d // 2)
+        ds = max(1, d // 4)
+        sm = cv2.resize(circ, (ds, ds), interpolation=cv2.INTER_AREA)
+        sm = cv2.GaussianBlur(sm, (0, 0), sigmaX=1.0)
+        sm = cv2.resize(sm, (d, d), interpolation=cv2.INTER_LINEAR)
+        shadow_mask = sm.astype(np.float32) * 0.5
+
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     silent_path = out.parent / (out.stem + "_silent.mp4")
@@ -284,7 +352,7 @@ def generate(
         "-f", "rawvideo", "-pix_fmt", "bgr24",
         "-s", f"{OUT_W}x{OUT_H}", "-r", f"{fps:.6f}",
         "-i", "pipe:0",
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "medium",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast",
         "-crf", "20", str(silent_path),
     ]
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE,
@@ -293,6 +361,7 @@ def generate(
     margin_x = int(person_pos[0] * OUT_W)
     margin_y = int(person_pos[1] * OUT_H)
     placed_box = None
+    t_render0 = time.time()
 
     with PersonSegmenter() as segmenter:
         i = 0
@@ -302,48 +371,40 @@ def generate(
                 break
             t = i / fps
 
-            # 1) 背景
+            # 1) 背景（预计算算子：通道混合 + 逐像素乘加）
             if bg_reader is not None:
-                canvas = bg_reader.next().astype(np.float32)
-                b, g, r = (canvas[:, :, 0], canvas[:, :, 1], canvas[:, :, 2])
-                luma = 0.299 * r + 0.587 * g + 0.114 * b
-                gray = np.stack([luma, luma, luma], axis=2)
-                canvas = canvas * (1 - sp["desat"]) + gray * sp["desat"]
-                canvas = canvas * (1 - bg_dim)
-                canvas = canvas * vig[:, :, None] + add[:, :, None] * 255.0
-                canvas = (canvas * sub[:, :, None]).astype(np.float32)
-                canvas = np.clip(canvas, 0, 255).astype(np.uint8)
+                cf = bg_reader.next().astype(np.float32)
+                if grade_K is not None:
+                    cf = cv2.transform(cf, grade_K)
+                cf = cv2.multiply(cf, grade_M3)
+                cv2.add(cf, grade_A3, dst=cf)
+                np.clip(cf, 0, 255, out=cf)
+                canvas = cf.astype(np.uint8)
             else:
                 canvas = graded_color.copy()
 
             # 2) 人物裁剪 -> 圆形遮罩，固定直径与位置（消除逐帧抖动）
             box = segmenter.person_bbox(frame, i, fps)
             if box is not None:
-                target_d = int(person_height_ratio * OUT_H)   # 固定直径，无呼吸缩放
                 rgba = _person_crop_rgba(
                     frame, box, target_d,
                     border_bgr if border else (0, 0, 0), border_w=8 if border else 0,
                 )
                 if rgba is not None:
                     pw, ph = rgba.shape[1], rgba.shape[0]
-                    px, py = margin_x, margin_y
-                    px = min(px, OUT_W - pw)
-                    py = min(py, OUT_H - ph)
+                    px = min(margin_x, OUT_W - pw)
+                    py = min(margin_y, OUT_H - ph)
 
                     ea = _smoothstep(min(t / 0.8, 1.0))  # 入场上浮淡入
-                    if person_shadow and ea > 0.01:
-                        sh = np.zeros_like(rgba)
-                        sh[:, :, 3] = (cv2.GaussianBlur(rgba[:, :, 3], (25, 25), 0).astype(np.float32)
-                                       * 0.5 * ea).astype(np.uint8)
-                        _composite(canvas, sh, px + 4, py + 10)
+                    if shadow_mask is not None and ea > 0.01:
+                        sh_alpha = np.clip(shadow_mask * ea, 0, 255).astype(np.uint8)
+                        _shadow_region(canvas, sh_alpha, px + 4, py + 10)
                     _composite(canvas, rgba, px, py, ea)
                     placed_box = (px, py, px + pw, py + ph)
 
-            # 3) 字幕（避开人物框）
-            sub_layer = renderer.render(t, placed_box)
-            if sub_layer is not None:
-                sub_np = cv2.cvtColor(np.asarray(sub_layer), cv2.COLOR_RGBA2BGRA)
-                _composite(canvas, sub_np, 0, 0)
+            # 3) 字幕（避开人物框）：只叠加小贴图，不再做全画布 RGBA 转换与合成
+            for tile, tx, ty in renderer.render_tiles(t, placed_box):
+                _composite(canvas, tile, tx, ty)
 
             proc.stdin.write(canvas.astype(np.uint8).tobytes())
             i += 1
@@ -362,7 +423,9 @@ def generate(
     final = _finalize_audio(str(silent_path), input_video, bgm_path,
                             bgm_volume, voice_volume, str(out))
 
-    print(f"[compose] 完成: {final} 共 {i} 帧")
+    dt = time.time() - t_render0
+    fps_out = i / dt if dt > 0 else 0.0
+    print(f"[compose] 完成: {final} 共 {i} 帧，合成耗时 {dt:.1f}s（{fps_out:.1f} fps）")
     return final
 
 
