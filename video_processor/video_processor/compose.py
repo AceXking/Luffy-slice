@@ -19,6 +19,7 @@ from .ffmpeg_utils import FFMPEG_BIN, FFPROBE_BIN
 from .segmentation import PersonSegmenter
 from .subtitles import SubtitleRenderer
 from .transcribe import transcribe
+from .transcribe import DEFAULT_MODEL as WHISPER_DEFAULT
 
 OUT_W, OUT_H = 1080, 1920  # 9:16
 
@@ -224,6 +225,7 @@ def generate(
     output_path: str,
     background: dict,
     language: str = "zh",
+    whisper_model: str = WHISPER_DEFAULT,
     person_height_ratio: float = 0.30,
     person_pos: tuple[float, float] = (0.05, 0.05),
     border: bool = True,
@@ -258,7 +260,7 @@ def generate(
         bg_reader = _BgVideoReader(background["path"], OUT_W, OUT_H)
 
     print("[compose] 转写中...")
-    segments = transcribe(input_video, language=language)
+    segments = transcribe(input_video, language=language, model_name=whisper_model)
     sub_over = dict(subtitle_overrides or {})
     sub_over.setdefault("accent", (*accent_rgb, 255))
     renderer = SubtitleRenderer(segments, OUT_W, OUT_H, **sub_over)

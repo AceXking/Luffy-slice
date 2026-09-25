@@ -1,7 +1,7 @@
 """ffmpeg 封装层。
 
-直接调用工作区里的 ffmpeg 二进制，无需额外安装。
-ffmpeg 目录: D:\\pro\\QP\\ffmpeg-master-latest-win64-gpl-shared\\bin
+直接调用仓库根目录里的 ffmpeg 二进制，无需额外安装。
+ffmpeg 目录: <仓库根>/ffmpeg-master-latest-win64-gpl-shared/bin
 """
 
 import os

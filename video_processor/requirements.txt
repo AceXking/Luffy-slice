@@ -1,5 +1,5 @@
-# 运行环境: 隔离 venv C:\Users\jack\.workbuddy\binaries\python\envs\video_processor
-# ffmpeg 直接用工作区二进制 D:\pro\QP\ffmpeg-master-latest-win64-gpl-shared\bin，无需 pip 安装
+# 运行环境: 隔离 venv C:\Users\郝晨汝\.workbuddy\binaries\python\envs\video_processor
+# ffmpeg 直接用仓库根目录二进制 ..\ffmpeg-master-latest-win64-gpl-shared\bin，无需 pip 安装
 streamlit>=1.64
 mediapipe>=1.0.1
 faster-whisper>=1.2.1

@@ -2,8 +2,8 @@
 chcp 65001 >nul 2>&1
 setlocal
 
-set "PY=C:\Users\jack\.workbuddy\binaries\python\envs\video_processor\Scripts\python.exe"
-set "ROOT=D:\pro\QP\video_processor"
+set "PY=C:\Users\郝晨汝\.workbuddy\binaries\python\envs\video_processor\Scripts\python.exe"
+set "ROOT=D:\github\Luffy-slice\video_processor"
 set "LOG=%ROOT%\run.log"
 
 cd /d "%ROOT%" || (echo [错误] 无法进入目录：%ROOT% & pause & exit /b 1)
@@ -11,9 +11,24 @@ cd /d "%ROOT%" || (echo [错误] 无法进入目录：%ROOT% & pause & exit /b 1
 if not exist "%PY%" (
   echo [错误] 找不到 Python 解释器：
   echo   %PY%
-  echo 请确认虚拟环境路径是否正确（可能需重新创建 venv）。
+  echo 请先创建虚拟环境并安装依赖：
+  echo   python -m venv "C:\Users\郝晨汝\.workbuddy\binaries\python\envs\video_processor"
+  echo   "%PY%" -m pip install -r requirements.txt
   pause
   exit /b 1
+)
+
+REM 依赖自检
+if not exist "..\ffmpeg-master-latest-win64-gpl-shared\bin\ffmpeg.exe" (
+  echo [警告] 未找到 ffmpeg：..\ffmpeg-master-latest-win64-gpl-shared\bin\ffmpeg.exe
+  echo        读取视频信息 / 生成成品会失败，请先按 README 放置 ffmpeg 二进制。
+)
+if not exist "models\faster-whisper-base\model.bin" (
+  echo [警告] 未找到语音模型：models\faster-whisper-base\
+  echo        字幕转写会失败，请先按 README 放置模型。
+)
+if not exist "models\selfie_segmenter.tflite" (
+  echo [警告] 未找到分割模型：models\selfie_segmenter.tflite
 )
 
 REM 若 8501 已被占用，自动释放（避免端口冲突导致启动失败 / 闪退）

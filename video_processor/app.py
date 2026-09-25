@@ -30,7 +30,7 @@ if page == "首页":
     st.title("🎬 视频处理工具")
     st.markdown("左侧切换到「生成」制作 9:16 成品。")
 
-    path = st.text_input("视频文件路径", placeholder=r"例如 D:\pro\QP\demo.mp4")
+    path = st.text_input("视频文件路径", placeholder=r"例如 D:\videos\demo.mp4")
     if st.button("读取信息", type="primary"):
         if not path:
             st.warning("请先填写视频文件路径")
@@ -74,7 +74,7 @@ elif page == "生成":
                 with open(input_path, "wb") as f:
                     shutil.copyfileobj(up, f)
             st.success(f"已保存: {input_path.name}")
-        manual = st.text_input("或填写本地路径", placeholder=r"D:\pro\QP\xxx.mp4", key="manual")
+        manual = st.text_input("或填写本地路径", placeholder=r"D:\videos\xxx.mp4", key="manual")
         if manual:
             input_path = manual
 
@@ -154,6 +154,18 @@ elif page == "生成":
         max_chars = colp6.slider("每行字数", 4, 14, 8, 1)
         person_shadow = st.checkbox("人物投影(景深)", True)
         lang = st.selectbox("语音语言", ["zh", "en", "ja", "ko"], index=0)
+        _MODEL_LABELS = {
+            "base": "base — 最快，准确率低",
+            "small": "small — 快，准确率一般",
+            "medium": "medium — 较准（推荐，默认）",
+            "large-v3": "large-v3 — 最准，CPU 上明显更慢",
+        }
+        whisper_model = st.selectbox(
+            "转写模型（越大越准、越慢）",
+            list(_MODEL_LABELS.keys()),
+            index=2,
+            format_func=lambda k: _MODEL_LABELS[k],
+        )
 
     if st.button("🪄 生成", type="primary", use_container_width=True):
         if not input_path:
@@ -202,6 +214,7 @@ elif page == "生成":
                     output_path=str(out_path),
                     background=background_final,
                     language=lang,
+                    whisper_model=whisper_model,
                     person_height_ratio=person_h,
                     person_pos=(pos_x, pos_y),
                     border=border_on,
